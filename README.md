@@ -93,5 +93,5 @@ npx http-server@14.1.1 -p 8000 -c-1
 - Dagboken lagras bara i Google Sheets. En kopia sparas i telefonens webbläsare så att sidan
   startar snabbt, och den raderas om man trycker **Logga ut**.
 - Vid ny anteckning skickas telefonens ungefärliga position till Open-Meteo (väder) och
-  BigDataCloud (ortnamn). Inget annat skickas till dem.
+  OpenStreetMap/Nominatim (ortnamn, med BigDataCloud som reserv). Inget annat skickas till dem.
 - Sidan har `noindex`, så sökmotorer listar den inte.

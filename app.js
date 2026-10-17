@@ -55,19 +55,22 @@
   const fmtShort = new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short' });
   const fmtWd = new Intl.DateTimeFormat('sv-SE', { weekday: 'short' });
 
-  function weatherIcon(w) {
+  // Vädret avgör färg och ikon på kort och läsvy.
+  function weatherKind(w) {
     w = (w || '').toLowerCase();
-    if (!w) return '';
-    if (/åsk/.test(w)) return '⛈️';
-    if (/snö/.test(w)) return '❄️';
-    if (/regn|skur|dugg/.test(w)) return '🌧️';
-    if (/dimm/.test(w)) return '🌫️';
-    if (/halvklar|växlande|mest sol|lite moln|sol och moln/.test(w)) return '⛅';
-    if (/moln|mulet|grå/.test(w)) return '☁️';
-    if (/blås|vind|storm/.test(w)) return '💨';
-    if (/sol|klart|varm/.test(w)) return '☀️';
-    return '🌡️';
+    if (!w) return 'none';
+    if (/åsk/.test(w)) return 'storm';
+    if (/snö/.test(w)) return 'snow';
+    if (/regn|skur|dugg/.test(w)) return 'rain';
+    if (/dimm/.test(w)) return 'fog';
+    if (/halvklar|växlande|mest sol|lite moln|sol och moln/.test(w)) return 'partly';
+    if (/moln|mulet|grå/.test(w)) return 'cloud';
+    if (/blås|vind|storm/.test(w)) return 'wind';
+    if (/sol|klart|varm/.test(w)) return 'sun';
+    return 'other';
   }
+  const KIND_ICON = { sun: '☀️', partly: '⛅', cloud: '☁️', rain: '🌧️', snow: '❄️', storm: '⛈️', fog: '🌫️', wind: '💨', other: '🌡️', none: '📖' };
+  const weatherIcon = w => (w ? KIND_ICON[weatherKind(w)] : '');
 
   const WMO = [
     [[0], 'Sol'], [[1], 'Mest sol'], [[2], 'Halvklart'], [[3], 'Mulet'],
@@ -469,9 +472,53 @@
     const info = $('#resultsInfo');
     info.hidden = !state.terms.length;
     info.textContent = state.view.length === 1 ? '1 anteckning hittades' : `${state.view.length} anteckningar hittades`;
+    state.monthStats = {};
+    for (const e of state.view) {
+      const k = e.date.slice(0, 7);
+      const m = state.monthStats[k] || (state.monthStats[k] = { n: 0, places: [] });
+      m.n++;
+      if (e.place && !m.places.some(p => p.toLowerCase() === e.place.toLowerCase())) m.places.push(e.place);
+    }
+    renderHero();
     renderChips();
     renderOnThisDay();
     renderMore();
+  }
+
+  function renderHero() {
+    const hero = $('#hero');
+    hero.hidden = !!state.terms.length;
+    const now = new Date();
+    const h = now.getHours();
+    const period = h < 5 ? 'night' : h < 10 ? 'morning' : h < 17 ? 'day' : h < 21 ? 'evening' : 'night';
+    hero.dataset.period = period;
+    $('#heroDate').textContent = cap(fmtFull.format(now).replace(/ \d{4}$/, ''));
+    $('#heroGreet').textContent = { morning: 'God morgon!', day: 'Hej på dig!', evening: 'God kväll!', night: 'God natt!' }[period];
+
+    const dated = state.entries.filter(e => e.date);
+    const places = new Set(dated.map(e => e.place.toLowerCase()).filter(Boolean));
+    const days = new Set(dated.map(e => e.date));
+    // Antal dagar i rad som har en anteckning, räknat bakåt från idag eller igår.
+    let streak = 0;
+    const d = new Date();
+    if (!days.has(localDate(d))) d.setDate(d.getDate() - 1);
+    while (days.has(localDate(d))) { streak++; d.setDate(d.getDate() - 1); }
+    const first = dated.length ? dated[dated.length - 1].date : '';
+    const stats = [
+      [days.size.toLocaleString('sv-SE'), days.size === 1 ? 'dag' : 'dagar'],
+      [places.size.toLocaleString('sv-SE'), places.size === 1 ? 'ort' : 'orter']
+    ];
+    if (streak >= 2) stats.push([streak, 'i rad 🔥']);
+    else if (first) stats.push([first.slice(0, 4), 'sedan']);
+    $('#heroStats').innerHTML = stats.map(([n, l]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('');
+
+    const today = state.entries.find(e => e.date === todayStr());
+    const cta = $('#heroCta');
+    cta.href = today ? '#/e/' + today.row : '#/new';
+    cta.classList.toggle('done', !!today);
+    cta.innerHTML = today
+      ? '<span>✓</span> Dagens anteckning är skriven'
+      : '<span>✍️</span> Skriv dagens anteckning';
   }
 
   function renderChips() {
@@ -498,7 +545,7 @@
     if (!hits.length) return;
     const h = document.createElement('p');
     h.className = 'section-label';
-    h.textContent = 'Den här dagen tidigare år';
+    h.textContent = '🕰️ Den här dagen tidigare år';
     box.append(h);
     hits.forEach(e => {
       const n = +t.slice(0, 4) - +e.date.slice(0, 4);
@@ -521,16 +568,17 @@
     const a = document.createElement('a');
     a.className = 'card' + (label ? ' memory' : '');
     a.href = '#/e/' + e.row;
+    a.dataset.kind = weatherKind(e.weather);
     const d = e.date ? toDate(e.date) : null;
     a.innerHTML =
       `<div class="card-date">${d
-        ? `<span class="day">${d.getDate()}</span><span class="wd">${esc(fmtWd.format(d).replace('.', ''))}</span>`
-        : '<span class="day">–</span>'}</div>` +
+        ? `<span class="wd">${esc(fmtWd.format(d).replace('.', ''))}</span><span class="day">${d.getDate()}</span>`
+        : '<span class="day">–</span>'}<span class="card-wx" aria-hidden="true">${KIND_ICON[a.dataset.kind]}</span></div>` +
       `<div class="card-body">` +
       (label ? `<div class="card-label">${esc(label)}</div>` : '') +
       `<div class="card-meta">` +
       (e.place ? `<span class="place">${ICON.pin}${esc(e.place)}</span>` : '') +
-      (e.weather ? `<span class="wx">${weatherIcon(e.weather)} ${esc(e.weather)}</span>` : '') +
+      (e.weather ? `<span class="wx">${esc(e.weather)}</span>` : '') +
       `</div><p class="snippet"></p></div>`;
     const p = a.querySelector('.snippet');
     p.textContent = snippet(e.text);
@@ -549,15 +597,32 @@
     }
     const frag = document.createDocumentFragment();
     const end = Math.min(state.rendered + PAGE, state.view.length);
+    const searching = state.terms.length > 0;
     for (let i = state.rendered; i < end; i++) {
       const e = state.view[i];
+      const newer = state.view[i - 1];
       const mk = e.date.slice(0, 7);
+      // Byte av ort mellan två anteckningar visas som en liten resemarkör.
+      if (!searching && newer && e.place && newer.place && e.place.toLowerCase() !== newer.place.toLowerCase()) {
+        const t = document.createElement('div');
+        t.className = 'trip';
+        t.innerHTML = `<span class="trip-line" aria-hidden="true"></span><span class="trip-label">🚐 ${esc(e.place)} <span aria-label="till">→</span> <b>${esc(newer.place)}</b></span>`;
+        frag.append(t);
+      }
       if (mk !== state.lastMonth) {
         state.lastMonth = mk;
         const h = document.createElement('h3');
         h.className = 'month';
         h.textContent = mk ? cap(fmtMonth.format(toDate(mk + '-01'))) : 'Utan datum';
         frag.append(h);
+        const st = state.monthStats[mk];
+        if (st) {
+          const p = document.createElement('p');
+          p.className = 'month-sub';
+          const pl = st.places.length > 3 ? st.places.slice(0, 3).join(', ') + ` +${st.places.length - 3}` : st.places.join(', ');
+          p.textContent = `${st.n} ${st.n === 1 ? 'dag' : 'dagar'}${pl ? ' · ' + pl : ''}`;
+          frag.append(p);
+        }
       }
       frag.append(cardEl(e));
     }
@@ -583,6 +648,8 @@
     if (!e) { location.replace('#/'); return; }
     const sameEntry = state.current === 'entry' && state.shown === e;
     state.shown = e;
+    $('#entryArticle').dataset.kind = weatherKind(e.weather);
+    $('#eWx').textContent = KIND_ICON[weatherKind(e.weather)];
     $('#eYear').textContent = e.date ? e.date.slice(0, 4) : '';
     $('#eDate').textContent = e.date ? cap(fmtLong.format(toDate(e.date))) : 'Utan datum';
     $('#eMeta').innerHTML =
@@ -644,17 +711,31 @@
     if (!e && !draft) locate(false);
   }
 
+  // Den lokala orten (by, småort, stadsdel) går före kommun och stad.
+  // OpenStreetMap är mest finkornigt; BigDataCloud används om det inte svarar.
+  async function placeName(lat, lon) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=sv&lat=${lat}&lon=${lon}`);
+      const a = (await r.json()).address || {};
+      const p = a.village || a.hamlet || a.suburb || a.neighbourhood || a.town || a.city_district || a.city || a.municipality;
+      if (p) return p.split(' / ')[0];
+    } catch { /* prova nästa */ }
+    const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=sv`);
+    const j = await r.json();
+    return j.locality || j.city || j.principalSubdivision || '';
+  }
+
   async function locate(force) {
     if (!navigator.geolocation) { if (force) toast('Telefonen kan inte dela plats här'); return; }
     const btn = $('#locBtn');
     btn.classList.add('busy');
     try {
       const c = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(
-        p => res(p.coords), rej, { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60e3 }));
+        p => res(p.coords), rej, { enableHighAccuracy: true, timeout: 20000, maximumAge: 2 * 60e3 }));
       const lat = c.latitude.toFixed(4), lon = c.longitude.toFixed(4);
       const [wx, pl] = await Promise.allSettled([
         fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=weather_code,temperature_2m&timezone=auto`).then(r => r.json()),
-        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=sv`).then(r => r.json())
+        placeName(lat, lon)
       ]);
       if (wx.status === 'fulfilled' && wx.value.current) {
         const cur = wx.value.current;
@@ -662,7 +743,7 @@
         if (force || !$('#fWeather').value) $('#fWeather').value = txt;
       }
       if (pl.status === 'fulfilled') {
-        const p = pl.value.city || pl.value.locality || pl.value.principalSubdivision || '';
+        const p = pl.value;
         if (p && (force || !$('#fPlace').value)) $('#fPlace').value = p;
       }
       if (force && wx.status === 'rejected' && pl.status === 'rejected') toast('Kunde inte hämta plats och väder');
