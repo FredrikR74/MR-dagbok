@@ -733,14 +733,20 @@
       const c = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(
         p => res(p.coords), rej, { enableHighAccuracy: true, timeout: 20000, maximumAge: 2 * 60e3 }));
       const lat = c.latitude.toFixed(4), lon = c.longitude.toFixed(4);
+      // Dagens väder och högsta temperatur för anteckningens datum, inte vädret just nu.
+      // Open-Meteo har dagsdata från ca 3 månader bakåt till 2 veckor framåt.
+      const day = $('#fDate').value || todayStr();
+      const diff = (toDate(day) - toDate(todayStr())) / 864e5;
+      const range = diff >= -90 && diff <= 14 ? `&start_date=${day}&end_date=${day}` : '&forecast_days=1';
       const [wx, pl] = await Promise.allSettled([
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=weather_code,temperature_2m&timezone=auto`).then(r => r.json()),
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max&timezone=auto${range}`).then(r => r.json()),
         placeName(lat, lon)
       ]);
-      if (wx.status === 'fulfilled' && wx.value.current) {
-        const cur = wx.value.current;
-        const txt = `${wmoText(cur.weather_code)}, ${Math.round(cur.temperature_2m)}°`.replace(/^, /, '');
-        if (force || !$('#fWeather').value) $('#fWeather').value = txt;
+      const daily = wx.status === 'fulfilled' && wx.value.daily;
+      if (daily && daily.time && daily.time.length) {
+        const max = daily.temperature_2m_max[0];
+        const txt = [wmoText(daily.weather_code[0]), max == null ? '' : Math.round(max) + '°'].filter(Boolean).join(', ');
+        if (txt && (force || !$('#fWeather').value)) $('#fWeather').value = txt;
       }
       if (pl.status === 'fulfilled') {
         const p = pl.value;
