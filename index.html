@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f5efe4">
+  <title>Dagboken</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Dagboken">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400;1,7..72,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Sätt tema och textstorlek innan sidan ritas, så att den inte blinkar.
+    try {
+      var s = JSON.parse(localStorage.getItem('dagbok.scale'));
+      if (s) document.documentElement.style.setProperty('--scale', s);
+      var t = JSON.parse(localStorage.getItem('dagbok.theme'));
+      if (t && t !== 'auto') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <script src="config.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <button class="icon-btn" id="backBtn" aria-label="Tillbaka" hidden>
+      <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <h1 class="brand" id="brand">Dagboken</h1>
+    <div class="top-actions">
+      <button class="icon-btn" id="searchBtn" aria-label="Sök" hidden>
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" aria-label="Textstorlek och inställningar">
+        <span class="aa">A<small>a</small></span>
+      </button>
+    </div>
+  </header>
+
+  <main id="app">
+    <section id="view-loading" class="view center">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="muted">Öppnar dagboken…</p>
+    </section>
+
+    <section id="view-login" class="view center" hidden>
+      <img src="icon.svg" alt="" class="hero-icon">
+      <h2 class="hero-title" id="greeting">God morgon</h2>
+      <p class="muted">Logga in med ditt Google-konto för att öppna dagboken.</p>
+      <button class="btn primary big" id="loginBtn">Logga in med Google</button>
+      <p class="error" id="loginError" hidden></p>
+    </section>
+
+    <section id="view-setup" class="view center" hidden>
+      <img src="icon.svg" alt="" class="hero-icon">
+      <h2 class="hero-title">Koppla dagboken</h2>
+      <p class="muted">Klistra in länken till dagbokens Google Sheet.</p>
+      <input type="url" id="sheetInput" class="input" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off">
+      <button class="btn primary big" id="sheetSave">Fortsätt</button>
+      <p class="error" id="setupError" hidden></p>
+    </section>
+
+    <section id="view-list" class="view" hidden>
+      <div class="banner" id="syncBanner" hidden>
+        <span>Visar sparad kopia.</span>
+        <button class="btn small" id="bannerLogin">Logga in</button>
+      </div>
+      <div class="searchbar" id="searchbar" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="searchInput" placeholder="Sök i dagboken…" enterkeyhint="search" autocomplete="off" aria-label="Sök i dagboken">
+        <button class="icon-btn small" id="searchClear" aria-label="Rensa sökning">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="chips" id="yearChips" role="toolbar" aria-label="Välj år"></div>
+      <p class="results-info" id="resultsInfo" hidden></p>
+      <div id="onThisDay"></div>
+      <div id="list"></div>
+      <div id="sentinel"></div>
+    </section>
+
+    <section id="view-entry" class="view" hidden>
+      <article class="entry" id="entryArticle">
+        <header class="entry-head">
+          <p class="entry-year" id="eYear"></p>
+          <h2 class="entry-date" id="eDate"></h2>
+          <div class="entry-meta" id="eMeta"></div>
+        </header>
+        <div class="entry-text rich" id="eText"></div>
+      </article>
+      <nav class="entry-nav">
+        <button class="btn" id="olderBtn"><span aria-hidden="true">‹</span> Äldre</button>
+        <button class="btn icon-only" id="editBtn" aria-label="Redigera">
+          <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></svg>
+        </button>
+        <button class="btn" id="newerBtn">Nyare <span aria-hidden="true">›</span></button>
+      </nav>
+    </section>
+
+    <section id="view-edit" class="view" hidden>
+      <form id="editForm" class="editor" autocomplete="off" novalidate>
+        <h2 class="editor-title" id="editTitle">Ny anteckning</h2>
+        <div class="field">
+          <label for="fDate">Datum</label>
+          <input type="date" id="fDate" class="input" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="fPlace">Var är vi?</label>
+            <input id="fPlace" class="input" placeholder="Ort">
+          </div>
+          <div class="field">
+            <label for="fWeather">Väder</label>
+            <input id="fWeather" class="input" placeholder="T.ex. Sol">
+          </div>
+        </div>
+        <button type="button" class="btn small ghost locate" id="locBtn">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <span>Hämta plats och väder</span>
+        </button>
+        <div class="field">
+          <label id="fTextLabel">Vad har vi gjort idag?</label>
+          <div class="toolbar" role="toolbar" aria-label="Textformat">
+            <button type="button" data-cmd="bold" aria-label="Fetstil" aria-pressed="false"><b>F</b></button>
+            <button type="button" data-cmd="italic" aria-label="Kursiv" aria-pressed="false"><i>K</i></button>
+            <button type="button" data-cmd="underline" aria-label="Understruken" aria-pressed="false"><u>U</u></button>
+            <button type="button" data-cmd="strikeThrough" aria-label="Genomstruken" aria-pressed="false"><s>S</s></button>
+          </div>
+          <div id="fText" class="rich-editor rich" contenteditable="true" role="textbox" aria-multiline="true"
+               aria-labelledby="fTextLabel" data-placeholder="Skriv här…" spellcheck="true"></div>
+        </div>
+        <div class="edit-actions">
+          <button type="button" class="btn ghost" id="cancelBtn">Avbryt</button>
+          <button type="submit" class="btn primary" id="saveBtn">Spara</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <button class="fab" id="fab" hidden>
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    <span>Ny</span>
+  </button>
+
+  <div class="sheet" id="settingsSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <h2 id="sheetTitle" class="sheet-title">Textstorlek</h2>
+      <div class="size-row">
+        <button class="btn size-btn" id="sizeDown" aria-label="Mindre text"><span style="font-size:.85em">A</span>−</button>
+        <input type="range" id="sizeRange" min="0.85" max="2.4" step="0.05" aria-label="Textstorlek">
+        <button class="btn size-btn" id="sizeUp" aria-label="Större text"><span style="font-size:1.25em">A</span>+</button>
+      </div>
+      <p class="size-preview">Så här stor blir texten i dagboken.</p>
+
+      <h2 class="sheet-title">Utseende</h2>
+      <div class="segmented" id="themeSeg">
+        <button data-theme="auto">Auto</button>
+        <button data-theme="light">Ljust</button>
+        <button data-theme="dark">Mörkt</button>
+      </div>
+
+      <div class="sheet-actions" id="sheetActions">
+        <button class="btn" id="refreshBtn">Hämta senaste</button>
+        <button class="btn ghost" id="changeSheetBtn">Byt kalkylark</button>
+        <button class="btn ghost" id="logoutBtn">Logga ut</button>
+      </div>
+      <button class="btn primary sheet-close" id="sheetClose">Klar</button>
+      <div class="sheet-grip" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
