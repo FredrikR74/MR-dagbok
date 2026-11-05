@@ -80,6 +80,22 @@
   ];
   const wmoText = code => (WMO.find(([codes]) => codes.includes(code)) || [, ''])[1];
 
+  // Open-Meteos dagliga weather_code är dagens *värsta* väder, så en enda molnig timme
+  // gör hela dagen "Mulet". Molnigheten bedöms därför av andelen soltimmar under dagsljuset,
+  // och nederbörd/dimma räknas bara när det faktiskt kom något av betydelse.
+  function dayWeatherText(code, sun, daylight, precip) {
+    if (code >= 95) return wmoText(code);
+    const ratio = daylight > 0 && sun != null ? sun / daylight : null;
+    const wet = code >= 51 && code <= 86;
+    if (wet && (precip == null || precip >= 1)) return wmoText(code);
+    if (ratio == null) return wmoText(code);
+    if ((code === 45 || code === 48) && ratio < 0.2) return wmoText(code);
+    if (ratio >= 0.7) return 'Sol';
+    if (ratio >= 0.45) return 'Mest sol';
+    if (ratio >= 0.2) return 'Halvklart';
+    return 'Mulet';
+  }
+
   let toastTimer;
   function toast(msg, ms = 3200) {
     const t = $('#toast');
@@ -739,13 +755,15 @@
       const diff = (toDate(day) - toDate(todayStr())) / 864e5;
       const range = diff >= -90 && diff <= 14 ? `&start_date=${day}&end_date=${day}` : '&forecast_days=1';
       const [wx, pl] = await Promise.allSettled([
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max&timezone=auto${range}`).then(r => r.json()),
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,sunshine_duration,daylight_duration,precipitation_sum&timezone=auto${range}`).then(r => r.json()),
         placeName(lat, lon)
       ]);
       const daily = wx.status === 'fulfilled' && wx.value.daily;
       if (daily && daily.time && daily.time.length) {
         const max = daily.temperature_2m_max[0];
-        const txt = [wmoText(daily.weather_code[0]), max == null ? '' : Math.round(max) + '°'].filter(Boolean).join(', ');
+        const desc = dayWeatherText(daily.weather_code[0], daily.sunshine_duration && daily.sunshine_duration[0],
+          daily.daylight_duration && daily.daylight_duration[0], daily.precipitation_sum && daily.precipitation_sum[0]);
+        const txt = [desc, max == null ? '' : Math.round(max) + '°'].filter(Boolean).join(', ');
         if (txt && (force || !$('#fWeather').value)) $('#fWeather').value = txt;
       }
       if (pl.status === 'fulfilled') {
